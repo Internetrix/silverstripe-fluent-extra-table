@@ -1,0 +1,10 @@
+---
+Name: fluentextra
+After: '#fluentextensions'
+---
+SiteTree:
+  extensions:
+    - ExtraTable_FluentSiteTree
+SiteConfig:
+  extensions:
+    - ExtraTable_FluentExtension
