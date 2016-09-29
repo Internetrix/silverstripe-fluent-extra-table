@@ -1,0 +1,33 @@
+{
+	"name" : "internetrix/silverstripe-fluent-extra",
+	"description" : "Extended silverstripe fluent module. Locales data will be stored in seperate tables.",
+	"type" : "silverstripe-module",
+	"keywords" : [
+		"silverstripe",
+		"localisation",
+		"localization",
+		"translation",
+		"language",
+		"locale",
+		"multilingual",
+		"translatable",
+		"i18n",
+		"internationalisation",
+		"internationalization",
+		"extended",
+		"extra"
+	],
+	"license" : "BSD-3-Clause",
+	"authors" : [{
+			"name" : "Jason Zhang",
+			"email" : "jason.zhang@internetrix.com.au"
+		}
+	],
+	"require" : {
+		"silverstripe/framework" : "~3.3",
+		"silverstripe/cms" : "~3.3"
+	},
+	"extra" : {
+		"installer-name" : "fluent-extra"
+	}
+}
