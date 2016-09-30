@@ -1,6 +1,6 @@
 {
-	"name" : "internetrix/silverstripe-fluent-extra",
-	"description" : "Extended silverstripe fluent module. Locales data will be stored in seperate tables.",
+	"name" : "internetrix/silverstripe-fluent-extra-table",
+	"description" : "Extended silverstripe fluent module. Locales data are be stored in seperate tables.",
 	"type" : "silverstripe-module",
 	"keywords" : [
 		"silverstripe",
@@ -15,7 +15,8 @@
 		"internationalisation",
 		"internationalization",
 		"extended",
-		"extra"
+		"extra",
+		"table"
 	],
 	"license" : "BSD-3-Clause",
 	"authors" : [{
@@ -25,9 +26,10 @@
 	],
 	"require" : {
 		"silverstripe/framework" : "~3.3",
-		"silverstripe/cms" : "~3.3"
+		"silverstripe/cms" : "~3.3",
+		"tractorcow/silverstripe-fluent" : "~3.5"
 	},
 	"extra" : {
-		"installer-name" : "fluent-extra"
+		"installer-name" : "fluent-extra-table"
 	}
 }
