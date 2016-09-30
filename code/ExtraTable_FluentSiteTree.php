@@ -1,6 +1,7 @@
 <?php
-
 /**
+ * All functions are copied from fluent module > FluentSiteTree.php
+ * 
  * @package fluent-extra
  * @author Jason Zhang <jason.zhang@internetrix.com.au>
  */
