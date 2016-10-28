@@ -27,7 +27,7 @@
 	"require" : {
 		"silverstripe/framework" : "~3.3",
 		"silverstripe/cms" : "~3.3",
-		"tractorcow/silverstripe-fluent" : "~3.5"
+		"tractorcow/silverstripe-fluent" : "~3.7"
 	},
 	"extra" : {
 		"installer-name" : "fluent-extra-table"

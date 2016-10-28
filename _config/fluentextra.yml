@@ -8,3 +8,7 @@ SiteTree:
 SiteConfig:
   extensions:
     - ExtraTable_FluentExtension
+Fluent:
+  handling_controller: 'ModelAsController' #to solve conflicts with modules that competing the default request controller, the the name of the competing 
+  extensions:
+    - Fluent_Extension
