@@ -15,6 +15,7 @@ composer require internetrix/silverstripe-fluent-extra-table:1.0.0
 
 ## Translatable Versioned Dataobjects
 Put code below for tranlsateable versioned data objects.
-Fluent:
+```Fluent:
   VersionedFluentDataObjects:
     - <DataObject Name>
+```
