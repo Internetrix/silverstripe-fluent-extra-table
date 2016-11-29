@@ -38,6 +38,8 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
     public function updateRelativeLink(&$base, &$action)
     {
 
+    	if(Director::is_absolute_url($base)) return;
+    	
         // Don't inject locale to subpages
         if ( ($this->owner->ParentID && SiteTree::config()->nested_urls) && 
         		!(class_exists('Site') && in_array($this->owner->ParentID, Site::get()->getIDList())) 	// add compatibility with Multisites
