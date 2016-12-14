@@ -22,15 +22,7 @@ Fluent:
 ```
 ## Current issue with Versioned
 Need to implement function allVersions() as below in Page.php to avoid error when clicking history on a page.
-/**
-	 * Return a list of all the versions available.
-	 *
-	 * @param  string $filter
-	 * @param  string $sort
-	 * @param  string $limit
-	 * @param  string $join   Deprecated, use leftJoin($table, $joinClause) instead
-	 * @param  string $having
-	 */
+
 	public function allVersions($filter = "", $sort = "", $limit = "", $join = "", $having = "") {
 		// Make sure the table names are not postfixed (e.g. _Live)
 		$oldMode = Versioned::get_reading_mode();
