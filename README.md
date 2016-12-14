@@ -20,3 +20,65 @@ Fluent:
   VersionedFluentDataObjects:
     - <DataObject Name>
 ```
+## Current issue with Versioned
+Need to implement function allVersions() as below in Page.php to avoid error when clicking history on a page.
+/**
+	 * Return a list of all the versions available.
+	 *
+	 * @param  string $filter
+	 * @param  string $sort
+	 * @param  string $limit
+	 * @param  string $join   Deprecated, use leftJoin($table, $joinClause) instead
+	 * @param  string $having
+	 */
+	public function allVersions($filter = "", $sort = "", $limit = "", $join = "", $having = "") {
+		// Make sure the table names are not postfixed (e.g. _Live)
+		$oldMode = Versioned::get_reading_mode();
+		Versioned::reading_stage('Stage');
+	
+		$list = DataObject::get(get_class($this), $filter, $sort, $join, $limit);
+		if($having) $having = $list->having($having);
+	
+		$query = $list->dataQuery()->query();
+	
+		foreach($query->getFrom() as $table => $tableJoin) {
+			if(is_string($tableJoin) && $tableJoin[0] == '"') {
+				$baseTable = str_replace('"','',$tableJoin);
+			} elseif(is_string($tableJoin) && substr($tableJoin,0,5) != 'INNER') {
+				$query->setFrom(array(
+						$table => "LEFT JOIN \"$table\" ON \"$table\".\"RecordID\"=\"{$baseTable}_versions\".\"RecordID\""
+						. " AND \"$table\".\"Version\" = \"{$baseTable}_versions\".\"Version\""
+				));
+			}
+			$locale = Fluent::current_locale();
+	
+			if(strpos($table, $locale) !== false){
+				$table = str_replace('_' . $locale,'',$table);
+				$query->renameTable($table, $table . '_versions' . '_' . $locale);
+			}else{
+				$query->renameTable($table, $table . '_versions');
+			}
+	
+		}
+	
+		// Add all <basetable>_versions columns
+		foreach(Config::inst()->get('Versioned', 'db_for_versions_table') as $name => $type) {
+			$query->selectField(sprintf('"%s_versions"."%s"', $baseTable, $name), $name);
+		}
+	
+		$query->addWhere(array(
+				"\"{$baseTable}_versions\".\"RecordID\" = ?" => $this->ID
+		));
+		$query->setOrderBy(($sort) ? $sort
+				: "\"{$baseTable}_versions\".\"LastEdited\" DESC, \"{$baseTable}_versions\".\"Version\" DESC");
+	
+		$records = $query->execute();
+		$versions = new ArrayList();
+	
+		foreach($records as $record) {
+			$versions->push(new Versioned_Version($record));
+		}
+	
+		Versioned::set_reading_mode($oldMode);
+		return $versions;
+	}
