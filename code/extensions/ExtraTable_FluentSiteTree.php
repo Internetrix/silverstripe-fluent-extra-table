@@ -14,7 +14,9 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
 	
     public function MetaTags(&$tags)
     {
-        $tags .= $this->owner->renderWith('FluentSiteTree_MetaTags');
+    	if(Fluent::config()->perlang_persite){
+    		$tags .= $this->owner->renderWith('FluentSiteTree_MetaTags');
+    	}
     }
 
     public function onBeforeWrite()
@@ -39,6 +41,8 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
     {
 
     	if(Director::is_absolute_url($base)) return;
+    	Debug::show($base);
+    	if($base == 'home') {$base = '/';}
     	
         // Don't inject locale to subpages
         if ( ($this->owner->ParentID && SiteTree::config()->nested_urls) && 
