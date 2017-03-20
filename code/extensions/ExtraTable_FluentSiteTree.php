@@ -41,7 +41,7 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
     {
 
     	if(Director::is_absolute_url($base)) return;
-    	Debug::show($base);
+    	
     	if($base == 'home') {$base = '/';}
     	
         // Don't inject locale to subpages
