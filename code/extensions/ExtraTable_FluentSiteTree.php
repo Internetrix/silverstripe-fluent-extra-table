@@ -19,24 +19,6 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
     	}
     }
 
-    public function onBeforeWrite()
-    {
-        // Fix issue with MenuTitle not containing the correct translated value
-        $this->owner->setField('MenuTitle', $this->owner->MenuTitle);
-
-        parent::onBeforeWrite();
-    }
-
-    /**
-     * Ensure that the controller is correctly initialised
-     *
-     * @param ContentController $controller
-     */
-    public function contentcontrollerInit($controller)
-    {
-        Fluent::install_locale();
-    }
-
     public function updateRelativeLink(&$base, &$action)
     {
 
@@ -65,6 +47,11 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
             if ($base === null) {
                 return;
             }
+            
+            // If default locale shouldn't have prefix, then don't add prefix
+            if (Fluent::disable_default_prefix()) {
+                return;
+            }
 
             // For all pages on a domain where there is only a single locale,
             // then the domain itself is sufficient to distinguish that domain
@@ -80,38 +67,4 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
         $base = Controller::join_links($localeURL, $base);
     }
 
-    public function LocaleLink($locale)
-    {
-
-        // For blank/temp pages such as Security controller fallback to querystring
-        if (!$this->owner->exists()) {
-            $url = Controller::curr()->getRequest()->getURL();
-            return Controller::join_links($url, '?'.Fluent::config()->query_param.'='.urlencode($locale));
-        }
-
-        return parent::LocaleLink($locale);
-    }
-
-    /**
-     * @param FieldList $fields
-     */
-    public function updateCMSFields(FieldList $fields)
-    {
-        parent::updateCMSFields($fields);
-
-        // Fix URLSegment field issue for root pages
-        if (!SiteTree::config()->nested_urls || empty($this->owner->ParentID)) {
-            $baseUrl = Director::baseURL();
-            if (class_exists('Subsite') && $this->owner->SubsiteID) {
-                $baseUrl = Director::protocol() . $this->owner->Subsite()->domain() . '/';
-            }
-            $baseLink = Director::absoluteURL(Controller::join_links(
-                $baseUrl,
-                Fluent::alias(Fluent::current_locale()),
-                '/'
-            ));
-            $urlsegment = $fields->dataFieldByName('URLSegment');
-            $urlsegment->setURLPrefix($baseLink);
-        }
-    }
 }
