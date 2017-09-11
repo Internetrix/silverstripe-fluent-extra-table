@@ -1,35 +1,53 @@
 <?php
 /**
  * All functions are copied from fluent module > FluentSiteTree.php
- * 
- * @package fluent-extra
- * @author Jason Zhang <jason.zhang@internetrix.com.au>
- */
+*
+* @package fluent-extra
+* @author Jason Zhang <jason.zhang@internetrix.com.au>
+*/
 class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
 {
-	/**
-	 * @var SiteTree
-	 */
-	protected $owner;
-	
+
     public function MetaTags(&$tags)
     {
-    	if(Fluent::config()->perlang_persite){
-    		$tags .= $this->owner->renderWith('FluentSiteTree_MetaTags');
-    	}
+        if(Fluent::config()->perlang_persite){
+            $tags .= $this->owner->renderWith('FluentSiteTree_MetaTags');
+        }
+    }
+
+    public function onBeforeWrite()
+    {
+        // Fix issue with MenuTitle not containing the correct translated value
+        // Unless it's a virtualpage
+        if (! ($this->owner instanceof VirtualPage) ) {
+            $this->owner->setField('MenuTitle', $this->owner->MenuTitle);
+        }
+
+        parent::onBeforeWrite();
+    }
+
+    /**
+     * Ensure that the controller is correctly initialised
+     *
+     * @param ContentController $controller
+     */
+    public function contentcontrollerInit($controller)
+    {
+        Fluent::install_locale();
     }
 
     public function updateRelativeLink(&$base, &$action)
     {
-
-    	if(Director::is_absolute_url($base)) return;
-    	
-    	if($base == 'home') {$base = '/';}
-    	
-        // Don't inject locale to subpages
-        if ( ($this->owner->ParentID && SiteTree::config()->nested_urls) && 
-        		!(class_exists('Site') && in_array($this->owner->ParentID, Site::get()->getIDList())) 	// add compatibility with Multisites
-        	) {
+    
+        if(Director::is_absolute_url($base)) return;
+         
+        
+        if (
+            // Don't inject locale to subpages
+            ($this->owner->ParentID && SiteTree::config()->nested_urls) &&
+            // add compatibility with Multisites
+            !(class_exists('Site') && in_array($this->owner->ParentID, Site::get()->getIDList()))
+        ) {
             return;
         }
 
@@ -47,7 +65,7 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
             if ($base === null) {
                 return;
             }
-            
+
             // If default locale shouldn't have prefix, then don't add prefix
             if (Fluent::disable_default_prefix()) {
                 return;
@@ -67,4 +85,38 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
         $base = Controller::join_links($localeURL, $base);
     }
 
+    public function LocaleLink($locale)
+    {
+
+        // For blank/temp pages such as Security controller fallback to querystring
+        if (!$this->owner->exists()) {
+            $url = Controller::curr()->getRequest()->getURL();
+            return Controller::join_links($url, '?'.Fluent::config()->query_param.'='.urlencode($locale));
+        }
+
+        return parent::LocaleLink($locale);
+    }
+
+    /**
+     * @param FieldList $fields
+     */
+    public function updateCMSFields(FieldList $fields)
+    {
+        parent::updateCMSFields($fields);
+
+        // Fix URLSegment field issue for root pages
+        if (!SiteTree::config()->nested_urls || empty($this->owner->ParentID)) {
+            $baseUrl = Director::baseURL();
+            if (class_exists('Subsite') && $this->owner->SubsiteID) {
+                $baseUrl = Director::protocol() . $this->owner->Subsite()->domain() . '/';
+            }
+            $baseLink = Director::absoluteURL(Controller::join_links(
+                $baseUrl,
+                Fluent::alias(Fluent::current_locale()),
+                '/'
+            ));
+            $urlsegment = $fields->dataFieldByName('URLSegment');
+            $urlsegment->setURLPrefix($baseLink);
+        }
+    }
 }

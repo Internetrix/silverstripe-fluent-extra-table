@@ -48,9 +48,9 @@ class ExtraTable_FluentExtension extends FluentExtension
                             || ($fieldsExclude && Fluent::any_match($field, $fieldsExclude))
                             || ($dataInclude && !Fluent::any_match($type, $dataInclude))
                             || ($dataExclude && Fluent::any_match($type, $dataExclude))
-                            ) {
-                                unset($db[$field]);
-                            }
+                        ) {
+                            unset($db[$field]);
+                        }
                     }
                 }
             }
@@ -110,6 +110,27 @@ class ExtraTable_FluentExtension extends FluentExtension
         WHEN '0' THEN \"{$class}\".\"{$fallback}\"
         ELSE \"{$class}_{$locale}\".\"{$select}\" END";
     }
+    
+    /**
+     * Replaces all columns in the given condition with any localised
+     *
+     * @param string $condition Condition SQL string
+     * @param array $includedTables
+     * @param string $locale Locale to localise to
+     * @return string $condition parameter with column names replaced
+     */
+    protected function localiseFilterCondition($condition, $includedTables, $locale)
+    {
+        foreach ($includedTables as $table => $columns) {
+            foreach ($columns as $column) {
+                $columnLocalised = Fluent::db_field_for_locale($column, $locale);
+                $identifier = "\"{$table}\".\"{$column}\"";
+                $identifierLocalised = "\"{$table}_{$locale}\".\"{$columnLocalised}\"";
+                $condition = preg_replace("/".preg_quote($identifier, '/')."/", $identifierLocalised, $condition);
+            }
+        }
+        return $condition;
+    }
 
     /**
      * Left join locale tables to SQLQuery.
@@ -123,6 +144,8 @@ class ExtraTable_FluentExtension extends FluentExtension
         $fromArray 	= $query->getFrom();
          
         $isLiveMod	= ( Versioned::current_stage() == 'Live' ) ? true : false;
+        
+        $default = Fluent::default_locale();
 
         if(count($fromArray)){
             foreach ($fromArray as $table => $config){
@@ -138,21 +161,33 @@ class ExtraTable_FluentExtension extends FluentExtension
                     continue;
                 }
                  
-                $localeTable 	= $primaryTable . '_' . $locale;
-
+                // join locale table
+                $localeTable = $primaryTable . '_' . $locale;
                 if(DB::get_schema()->hasTable($localeTable) && ! isset($fromArray[$localeTable])){
                     $query->addLeftJoin($localeTable, "\"{$primaryTable}\".\"ID\" = \"$localeTable\".\"ID\"");
                 }
-                 
-                //check version mode
+                
+                //check version mode for locale table
                 $baseLiveTableName = $primaryTable . '_Live';
                 if($isLiveMod && isset($includedTables[$baseLiveTableName])){
                     $query->renameTable($localeTable, $baseLiveTableName . '_' . $locale);
                 }
+                
+                // join default table
+                $defaultTable = $primaryTable . '_' . $default;
+                if(DB::get_schema()->hasTable($defaultTable) && ! isset($fromArray[$defaultTable])){
+                    $query->addLeftJoin($defaultTable, "\"{$primaryTable}\".\"ID\" = \"$defaultTable\".\"ID\"");
+                }
+                 
+                //check version mode for default table
+                $baseLiveTableName = $primaryTable . '_Live';
+                if($isLiveMod && isset($includedTables[$baseLiveTableName])){
+                    $query->renameTable($defaultTable, $baseLiveTableName . '_' . $default);
+                }
             }
         }
     }
-
+    
     /**
      * Override
      *
@@ -163,40 +198,60 @@ class ExtraTable_FluentExtension extends FluentExtension
         // Get locale and translation zone to use
         $default = Fluent::default_locale();
         $locale = $dataQuery->getQueryParam('Fluent.Locale') ?: Fluent::current_locale();
-
+    
         // Get all tables to translate fields for, and their respective field names
         $includedTables = $this->getTranslatedTables();
-
+    
         // Join locale table
         $this->localiseJoin($query, $locale, $includedTables);
-
+    
         // Iterate through each select clause, replacing each with the translated version
         foreach ($query->getSelect() as $alias => $select) {
-
+    
             // Skip fields without table context
             if (!preg_match('/^"(?<class>[\w\\\\]+)"\."(?<field>\w+)"$/i', $select, $matches)) {
                 continue;
             }
-
+    
             $class = $matches['class'];
             $field = $matches['field'];
-
+    
             // If this table doesn't have translated fields then skip
             if (empty($includedTables[$class])) {
                 continue;
             }
-
+    
             // If this field shouldn't be translated, skip
             if (!in_array($field, $includedTables[$class])) {
                 continue;
             }
-
+            $isFieldNullable = $this->isFieldNullable($field);
+    
             // Select visible field from translated fields (Title_fr_FR || Title => Title)
             $translatedField = Fluent::db_field_for_locale($field, $locale);
-            $expression = $this->localiseTableSelect($class, $translatedField, $field, $locale);
+            if ($isFieldNullable) {
+                // Table_locale.Field_locale => Table.Field
+                $expression = "\"{$class}_{$locale}\".\"{$translatedField}\"";
+            } else {
+                // Table_locale.Field_locale || Table.Field => Table.Field
+                $expression = $this->localiseTableSelect($class, $translatedField, $field, $locale);
+            }
             $query->selectField($expression, $alias);
+    
+            // At the same time, rewrite the selector for the default field to make sure that
+            // (in the case it is blank, which happens if installing fluent for the first time)
+            // that it also populated from the root field.
+            $defaultField = Fluent::db_field_for_locale($field, $default);
+            if ($isFieldNullable) {
+                // Force Table_default.Field_default => Table_default.Field_default
+                $defaultExpression = "\"{$class}_{$default}\".\"{$defaultField}\"";
+            } else {
+                // Table_default.Field_default || Table.Field => Table.Field_default
+                $defaultExpression = $this->localiseTableSelect($class, $defaultField, $field, $default);
+            }
+            $query->selectField($defaultExpression, $defaultField);
         }
-
+    
         // Rewrite where conditions with parameterised query (3.2 +)
         $where = $query
             ->toAppropriateExpression()
@@ -210,82 +265,124 @@ class ExtraTable_FluentExtension extends FluentExtension
                 $parameters = array_values(reset($condition));
                 $predicate = key($condition);
             }
-
-            // determine the table/column this condition is against
-            $filterColumn = $this->detectFilterColumn($predicate, $includedTables, $locale);
-            if (empty($filterColumn)) {
+    
+            // Find the first localised column that this condition matches.
+            // Use this as the basis of determining how to rewrite this query
+            $filterColumnArray = $this->detectFilterColumn($predicate, $includedTables);
+            if (empty($filterColumnArray)) {
                 continue;
+            }
+            list($table, $column) = $filterColumnArray;
+            $filterColumn = "\"{$table}_{$locale}\".\"".Fluent::db_field_for_locale($column, $locale)."\"";
+    
+            // Duplicate the condition with all localisable fields replaced
+            $localisedPredicate = $this->localiseFilterCondition($predicate, $includedTables, $locale);
+            if ($localisedPredicate === $predicate) {
+                continue;
+            }
+    
+            // Determine rewrite behaviour based on nullability of the "root" column in this condition
+            // This behaviour in imprecise, as the condition may contain filters with mixed nullability
+            // but it is a good approximation.
+            // For better accuracy of rewrite, ensure that each condition in a query is a separate where.
+            if ($this->isFieldNullable($column)) {
+                // If this field is nullable, then the condition is a simple rewrite of Table.Field => Table.Field_locale
+                $where[$index] = array(
+                    $localisedPredicate => $parameters
+                );
+            } else {
+                // Generate new condition that conditionally executes one of the two conditions
+                // depending on field nullability.
+                // If the filterColumn is null or empty, then it's considered untranslated, and
+                // thus the query should continue running on the default column unimpeded.
+                $castColumn = "COALESCE(CAST($filterColumn AS CHAR), '')";
+                $newPredicate = "
+                    ($castColumn != '' AND $castColumn != '0' AND ($localisedPredicate))
+                    OR (
+                    ($castColumn = '' OR $castColumn = '0') AND ($predicate)
+                )";
+                // Duplicate this condition with parameters duplicated
+                $where[$index] = array(
+                    $newPredicate => array_merge($parameters, $parameters)
+                );
             }
         }
         $query->setWhere($where);
-
+    
         // Augment search if applicable
         if ($adapter = Fluent::search_adapter()) {
             $adapter->augmentSearch($query, $dataQuery);
         }
     }
 
-
     public function augmentWrite(&$manipulation)
     {
-
+    
         // Bypass augment write if requested
         if (!self::$_enable_write_augmentation) {
             return;
         }
-
+    
         // Get locale and translation zone to use
         $locale = $this->owner->getSourceQueryParam('Fluent.Locale') ?: Fluent::current_locale();
         $defaultLocale = Fluent::default_locale();
-
+    
         // Get all tables to translate fields for, and their respective field names
         $includedTables = $this->getTranslatedTables();
-
+    
         // Versioned fields
         $versionFields = array("RecordID", "Version");
-
+    
         // Iterate through each select clause, replacing each with the translated version
         foreach ($manipulation as $class => $updates) {
              
-            $localeTable 		= $class . "_" . $locale;
+            $localeTable = $class . "_" . $locale;
              
-            $fluentFieldNames 	= array();
+            $fluentFieldNames = array();
              
-            $fluentFields 						= array();
-            $fluentFields[$localeTable]			= $updates;
-
+            $fluentFields = array();
+            $fluentFields[$localeTable] = $updates;
+    
             // If this table doesn't have translated fields then skip
             if (empty($includedTables[$class])) {
                 continue;
             }
-
+    
             foreach ($includedTables[$class] as $field) {
-
+    
                 //put all fluent field names of $class into array $fluentFieldNames
                 $updateField = Fluent::db_field_for_locale($field, $locale);
                 $fluentFieldNames[] = $updateField;
-
+    
                 // Skip translated field if not updated in this request
-                if (!array_key_exists($field, $updates['fields'])) {
+                if (empty($updates['fields']) || !array_key_exists($field, $updates['fields'])) {
                     continue;
                 }
-
+    
                 // Copy the updated value to the locale specific table.field
                 $fluentFields[$localeTable]['fields'][$updateField] = $updates['fields'][$field];
-
+    
                 // If not on the default locale, write the stored default field back to the main field
                 // (if Title_en_NZ then Title_en_NZ => Title)
                 // If the default subfield has no value, then save using the current locale
-                if ($locale !== $defaultLocale && $updates['command'] == 'update') {
-                    unset($updates['fields'][$field]);
+                if ($locale !== $defaultLocale) {
+                    $defaultField = Fluent::db_field_for_locale($field, $defaultLocale);
+    
+                    // Write default value back if a value exists,
+                    // but if this field can be nullable, write it back even if empty.
+                    if (!empty($updates['fields'][$defaultField]) || $this->isFieldNullable($field)) {
+                        $updates['fields'][$field] = isset($updates['fields'][$defaultField]) ?: null;
+                    } else {
+                        unset($updates['fields'][$field]);
+                    }
                 }
             }
-
+    
             // Save back modifications to the manipulation
             $manipulation[$class] = $updates;
-
+    
             // Save locale data.
-            if(count($fluentFields[$localeTable]['fields'])){
+            if(isset($fluentFields[$localeTable]['fields']) && count($fluentFields[$localeTable]['fields'])){
                 if(count($fluentFieldNames)){
                     foreach ($fluentFields[$localeTable]['fields'] as $fieldName => $fieldValue){
                         if( ! in_array($fieldName, $fluentFieldNames)){
@@ -300,14 +397,15 @@ class ExtraTable_FluentExtension extends FluentExtension
                 //check *_versions table. if this is Versioned table, copy 'Version' and 'RecordID' to locale version table
                 if(stripos($class, '_versions') !== false && count($versionFields)){
                     foreach ($versionFields as $versionFieldName){
-                        if(isset($manipulation[$class]['fields'][$versionFieldName]))
-                            $manipulation[$localeTable]['fields'][$versionFieldName] 	= $manipulation[$class]['fields'][$versionFieldName];
+                        if(isset($manipulation[$class]['fields'][$versionFieldName])) {
+                            $manipulation[$localeTable]['fields'][$versionFieldName] = $manipulation[$class]['fields'][$versionFieldName];
+                        }
                     }
                 }
             }
         }
     }
-
+    
     public function onAfterDelete() {
 
         $class = $this->owner->class;
@@ -343,6 +441,62 @@ class ExtraTable_FluentExtension extends FluentExtension
             }
         }
     }
+    
+    public function updateCMSFields(FieldList $fields)
+    {
+        // perform parent modifications
+        parent::updateCMSFields($fields);
+        
+        // fix modified label/title of translated fields
+        $translated = $this->getTranslatedTables();
+        foreach ($translated as $table => $translatedFields) {
+            foreach ($translatedFields as $translatedField) {
+        
+                // Find field matching this translated field
+                // If the translated field has an ID suffix also check for the non-suffixed version
+                // E.g. UploadField()
+                $field = $fields->dataFieldByName($translatedField);
+                if (!$field && preg_match('/^(?<field>\w+)ID$/', $translatedField, $matches)) {
+                    $field = $fields->dataFieldByName($matches['field']);
+                }
+        
+                // fix classes/labels of reset link
+                if ($field && $field->hasClass('LocalisedField')) {
+                    if (!$field->hasClass('UpdatedLocalisedField')) {
+                        
+                        $locale = Fluent::current_locale();
+                        $isModified = Fluent_Extension::isTableFieldModified($this->owner, $field, $locale);
+                        
+                        if ($isModified) {
+                            $dom = new DOMDocument();
+                            $dom->loadHTML($field->Title());
+                            $spans = $dom->getElementsByTagName('span');
+                            if (isset($spans[0])) {
+                                $classes = $spans[0]->getAttribute('class');
+                                if (strpos($classes, 'fluent-modified-value') === false) {
+                                    // update classes
+                                    $classes .= ' fluent-modified-value';
+                                    $spans[0]->removeAttribute('class');
+                                    $spans[0]->setAttribute('class', $classes);
+                                    // updat etitle
+                                    $spans[0]->removeAttribute('title');
+                                    $spans[0]->setAttribute('title', 'Modified from default locale value - click to reset');
+                                }
+                            }
+                            $body = $dom->getElementsByTagName('body')->item(0);
+                            $title = '';
+                            foreach ($body->childNodes as $child){
+                                $title .= $dom->saveHTML($child);
+                            }
+                            $field->setTitle($title);
+                        }
+                        
+                        $field->addExtraClass('UpdatedLocalisedField');
+                    }
+                }
+            }
+        }
+    }
 
     public static function ConfigVersionedDataObject(){
         //remove old FluentExtension and FluentSiteTree extensions.
@@ -371,14 +525,14 @@ class ExtraTable_FluentExtension extends FluentExtension
      *
      * e.g. SiteTree extension order need to be like that. 'Versioned' should be above 'FluentSiteTree' or 'ExtraTable_FluentExtension'
      *
-     1 => string 'Hierarchy'
-     2 => string 'Versioned('Stage', 'Live')'
-     3 => string 'SiteTreeLinkTracking'
-     4 => string 'ExtraTable_FluentSiteTree'
-      
-     replicate the following setting in your mysite/_config.php if you add ExtraTable_FluentExtension for Versioned DataObject like SiteTree.
-      
-     Don't worry about sub classes of SiteTree or Versioned DataObject.
+     * 1 => string 'Hierarchy'
+     * 2 => string 'Versioned('Stage', 'Live')'
+     * 3 => string 'SiteTreeLinkTracking'
+     * 4 => string 'ExtraTable_FluentSiteTree'
+     * 
+     * replicate the following setting in your mysite/_config.php if you add ExtraTable_FluentExtension for Versioned DataObject like SiteTree.
+     *
+     * Don't worry about sub classes of SiteTree or Versioned DataObject.
      *
      */
     public static function ChangeExtensionOrder($class, $extension = 'ExtraTable_FluentExtension'){
@@ -558,12 +712,12 @@ class ExtraTable_FluentExtension extends FluentExtension
                     $versionFields = array_merge(
                         Config::inst()->get('Versioned', 'db_for_versions_table'),
                         (array)$fields
-                        );
+                    );
 
                     $versionIndexes = array_merge(
                         Config::inst()->get('Versioned', 'indexes_for_versions_table'),
                         (array)$indexes
-                        );
+                    );
                 } else {
                     // Create fields for any tables of subclasses
                     $versionFields = array_merge(
@@ -572,7 +726,7 @@ class ExtraTable_FluentExtension extends FluentExtension
                             "Version" => "Int",
                         ),
                         (array)$fields
-                        );
+                    );
 
                     //Unique indexes will not work on versioned tables, so we'll convert them to standard indexes:
                     if($indexes && count($indexes)) $indexes = $this->uniqueToIndex($indexes);
@@ -584,7 +738,7 @@ class ExtraTable_FluentExtension extends FluentExtension
                             'Version' => true,
                         ),
                         (array)$indexes
-                        );
+                    );
                 }
 
                 if(DB::get_schema()->hasTable("{$table}_versions")) {
