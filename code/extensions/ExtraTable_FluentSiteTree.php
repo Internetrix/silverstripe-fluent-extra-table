@@ -1,28 +1,27 @@
 <?php
 /**
  * All functions are copied from fluent module > FluentSiteTree.php
- * 
- * @package fluent-extra
- * @author Jason Zhang <jason.zhang@internetrix.com.au>
- */
+*
+* @package fluent-extra
+* @author Jason Zhang <jason.zhang@internetrix.com.au>
+*/
 class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
 {
-	/**
-	 * @var SiteTree
-	 */
-	protected $owner;
-	
+
     public function MetaTags(&$tags)
     {
-    	if(Fluent::config()->perlang_persite){
-    		$tags .= $this->owner->renderWith('FluentSiteTree_MetaTags');
-    	}
+        if(Fluent::config()->perlang_persite){
+            $tags .= $this->owner->renderWith('FluentSiteTree_MetaTags');
+        }
     }
 
     public function onBeforeWrite()
     {
         // Fix issue with MenuTitle not containing the correct translated value
-        $this->owner->setField('MenuTitle', $this->owner->MenuTitle);
+        // Unless it's a virtualpage
+        if (! ($this->owner instanceof VirtualPage) ) {
+            $this->owner->setField('MenuTitle', $this->owner->MenuTitle);
+        }
 
         parent::onBeforeWrite();
     }
@@ -39,15 +38,16 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
 
     public function updateRelativeLink(&$base, &$action)
     {
-
-    	if(Director::is_absolute_url($base)) return;
-    	
-    	if($base == 'home') {$base = '/';}
-    	
-        // Don't inject locale to subpages
-        if ( ($this->owner->ParentID && SiteTree::config()->nested_urls) && 
-        		!(class_exists('Site') && in_array($this->owner->ParentID, Site::get()->getIDList())) 	// add compatibility with Multisites
-        	) {
+    
+        if(Director::is_absolute_url($base)) return;
+         
+        
+        if (
+            // Don't inject locale to subpages
+            ($this->owner->ParentID && SiteTree::config()->nested_urls) &&
+            // add compatibility with Multisites
+            !(class_exists('Site') && in_array($this->owner->ParentID, Site::get()->getIDList()))
+        ) {
             return;
         }
 
@@ -63,6 +63,11 @@ class ExtraTable_FluentSiteTree extends ExtraTable_FluentExtension
         if ($locale === Fluent::default_locale($domain)) {
             // For home page in the default locale, do not alter home url
             if ($base === null) {
+                return;
+            }
+
+            // If default locale shouldn't have prefix, then don't add prefix
+            if (Fluent::disable_default_prefix()) {
                 return;
             }
 
